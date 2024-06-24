@@ -37,11 +37,15 @@ import (
 const (
 	JSPullRequestPendingMsgs  = "Nats-Pending-Messages"
 	JSPullRequestPendingBytes = "Nats-Pending-Bytes"
+	JSPullRequestWrongPinID   = "Nats-Wrong-Pin-Id"
+	JSPullRequestNatsPinId    = "Nats-Pin-Id"
 )
 
 // Headers sent when batch size was completed, but there were remaining bytes.
 const JsPullRequestRemainingBytesT = "NATS/1.0 409 Batch Completed\r\n%s: %d\r\n%s: %d\r\n\r\n"
-const JSPullRequestPinIdT = "Nats-Pinned-Id: %s\r\n"
+
+// TODO(jrm): find a good status code for this.
+const JSPullRequestPinIdT = "NATS/1.0\r\nNats-Pinned-Id: %s\r\n\r\n"
 
 type ConsumerInfo struct {
 	Stream         string          `json:"stream_name"`
@@ -3138,7 +3142,6 @@ type waitingRequest struct {
 	hbt            time.Time
 	noWait         bool
 	priorityGroups *PriorityGroups
-	rtt            time.Duration
 	currentPinned  bool
 }
 
@@ -3172,6 +3175,7 @@ type waitQueue struct {
 	last   time.Time
 	head   *waitingRequest
 	tail   *waitingRequest
+	pinned *waitingRequest
 	// TODO(jrm): do we want a new data structure here for pinned pull requests?
 	// like pinned map[string]*waitingRequest where key is group?
 }
@@ -3309,6 +3313,9 @@ func (o *consumer) nextWaiting(sz int) *waitingRequest {
 	if o.waiting == nil || o.waiting.isEmpty() {
 		return nil
 	}
+
+	needNewPin := o.currentNuid == _EMPTY_ && o.cfg.PriorityPolicy == PriorityPinnedClient
+
 	for wr := o.waiting.peek(); !o.waiting.isEmpty(); wr = o.waiting.peek() {
 		if wr == nil {
 			break
@@ -3343,6 +3350,32 @@ func (o *consumer) nextWaiting(sz int) *waitingRequest {
 			// TODO(jrm): we could optimize the `wr` for pinned by having a separate
 			// pointer for the pinned puller, but at the same time, we have to
 			// TODO(jrm): we are ignoring groups for now.
+			if needNewPin {
+				//TODO(jrm) assing pinned here. Send status
+				wr.currentPinned = true
+				o.currentNuid = nuid.Next()
+				needNewPin = false
+				wr.priorityGroups.Id = o.currentNuid
+				hdr := fmt.Appendf(nil, JSPullRequestPinIdT, o.currentNuid)
+				// Send the new pinned status immediately
+				o.outq.send(newJSPubMsg(wr.reply, _EMPTY_, _EMPTY_, hdr, nil, nil, 0))
+				return o.waiting.pop()
+			}
+			if o.currentNuid != _EMPTY_ {
+				// Check if we have a match on the currentNuid
+				if wr.priorityGroups.Id == o.currentNuid {
+					return o.waiting.pop()
+				} else {
+					// FIXME(jrm): we're skipping interest expiration here.
+					o.outq.send(newJSPubMsg(wr.reply, _EMPTY_, _EMPTY_, []byte(JSPullRequestWrongPinID), nil, nil, 0))
+					o.waiting.removeCurrent()
+					if o.node != nil {
+						o.removeClusterPendingRequest(wr.reply)
+					}
+					wr = wr.next
+					continue
+				}
+			}
 			if o.currentNuid != "" {
 				// Check if we have a match on the currentNuid
 				if wr.priorityGroups.Id == o.currentNuid {
@@ -3384,21 +3417,11 @@ func (o *consumer) nextWaiting(sz int) *waitingRequest {
 		}
 		wr.recycle()
 	}
-	// we did not find any valid request.
-	// Let's pick new lowest rtt pull request.
-	// TODO(jrm): Maybe this should be done in `processWaiting`.
+
 	if o.currentNuid != _EMPTY_ && o.cfg.PriorityPolicy == PriorityPinnedClient {
-		var lowestRtt *waitingRequest
-		for wr := o.waiting.peek(); wr != nil; wr = o.waiting.peek() {
-			if lowestRtt == nil || wr.rtt < lowestRtt.rtt {
-				lowestRtt = wr
-			}
-		}
-		// Deliver the message to the new pinned
-		if lowestRtt != nil {
-			return o.waiting.pop()
-		}
+		o.currentNuid = _EMPTY_
 	}
+
 	return nil
 }
 
@@ -3477,7 +3500,6 @@ func (o *consumer) processNextMsgRequest(reply string, msg []byte) {
 		sendErr(400, fmt.Sprintf("Bad Request - %v", err))
 		return
 	}
-	requestorRtt := o.acc.ic.rtt
 
 	// Check for request limits
 	if o.cfg.MaxRequestBatch > 0 && batchSize > o.cfg.MaxRequestBatch {
@@ -3495,24 +3517,24 @@ func (o *consumer) processNextMsgRequest(reply string, msg []byte) {
 		return
 	}
 
-	if priorityGroups != nil {
-		if priorityGroups.Id != o.currentNuid {
-			// TODO(jrm): pick a nice error code (423 is "locked")
-			sendErr(423, fmt.Sprintf("Pinned id mismatch"))
-			return
+	// if priorityGroups != nil {
+	if priorityGroups.Id != o.currentNuid && o.currentNuid != _EMPTY_ {
+		// TODO(jrm): pick a nice error code (423 is "locked")
+		fmt.Println("Sending pinned id mismatch error")
+		sendErr(423, fmt.Sprintf("Pinned id mismatch"))
+		return
+	} else {
+		if o.pinnedTtl != nil {
+			o.pinnedTtl.Reset(o.cfg.PriorityTimeout)
 		} else {
-			if o.pinnedTtl != nil {
-				o.pinnedTtl.Reset(o.cfg.PriorityTimeout)
-			} else {
-				o.pinnedTtl = time.AfterFunc(o.cfg.PriorityTimeout, func() {
-					o.mu.Lock()
-					o.currentNuid = _EMPTY_
-					// TODO(jrm): we need to assign new nuid in processWaiting or nextWaiting
-					o.mu.Unlock()
-				})
-			}
+			o.pinnedTtl = time.AfterFunc(o.cfg.PriorityTimeout, func() {
+				o.mu.Lock()
+				o.currentNuid = _EMPTY_
+				o.mu.Unlock()
+			})
 		}
 	}
+	// }
 
 	// If we have the max number of requests already pending try to expire.
 	if o.waiting.isFull() {
@@ -3552,7 +3574,6 @@ func (o *consumer) processNextMsgRequest(reply string, msg []byte) {
 	wr := wrPool.Get().(*waitingRequest)
 	wr.acc, wr.interest, wr.reply, wr.n, wr.d, wr.noWait, wr.expires, wr.hb, wr.hbt, wr.priorityGroups = acc, interest, reply, batchSize, 0, noWait, expires, hb, hbt, priorityGroups
 	wr.b = maxBytes
-	wr.rtt = requestorRtt
 	wr.received = time.Now()
 
 	if err := o.waiting.add(wr); err != nil {

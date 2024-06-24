@@ -1226,6 +1226,75 @@ func TestJetStreamConsumerLongSubjectHang(t *testing.T) {
 	}
 }
 
+func TestJetStreamConsumerPinned(t *testing.T) {
+	s := RunBasicJetStreamServer(t)
+	defer s.Shutdown()
+
+	nc, _ := jsClientConnect(t, s)
+	defer nc.Close()
+
+	acc := s.GlobalAccount()
+
+	mset, err := acc.addStream(&StreamConfig{
+		Name:      "TEST",
+		Subjects:  []string{"foo.>", "bar", "baz"},
+		Retention: LimitsPolicy,
+	})
+	require_NoError(t, err)
+
+	_, err = mset.addConsumer(&ConsumerConfig{
+		Durable:        "C",
+		FilterSubject:  "foo.>",
+		PriorityGroups: []string{"A"},
+		PriorityPolicy: PriorityPinnedClient,
+		AckPolicy:      AckExplicit,
+	})
+	require_NoError(t, err)
+
+	// Send 10 messages to foo
+	for i := 0; i < 10; i++ {
+		sendStreamMsg(t, nc, fmt.Sprintf("foo.%d", i), fmt.Sprintf("msg-%d", i))
+	}
+
+	req := JSApiConsumerGetNextRequest{Batch: 3, Expires: 250 * time.Millisecond}
+	reqb, _ := json.Marshal(req)
+	reply := nats.NewInbox()
+	replies, err := nc.SubscribeSync(reply)
+	nc.PublishRequest("$JS.API.CONSUMER.MSG.NEXT.TEST.C", reply, reqb)
+	require_NoError(t, err)
+
+	reply2 := nats.NewInbox()
+	replies2, err := nc.SubscribeSync(reply2)
+	nc.PublishRequest("$JS.API.CONSUMER.MSG.NEXT.TEST.C", reply2, reqb)
+	require_NoError(t, err)
+
+	msg, err := replies.NextMsg(time.Second)
+	fmt.Printf("RESP: %+v\n", msg.Subject)
+	fmt.Printf("RESP: %+v\n", string(msg.Data))
+	fmt.Printf("RESP: %+v\n", msg.Header)
+
+	msg, err = replies2.NextMsg(time.Second)
+	fmt.Printf("RESP: %+v\n", msg.Subject)
+	fmt.Printf("RESP2: %+v\n", string(msg.Data))
+	fmt.Printf("RESP2: %+v\n", msg.Header)
+
+	msg, err = replies.NextMsg(time.Second)
+	fmt.Printf("RESP: %+v\n", msg.Subject)
+	fmt.Printf("RESP: %+v\n", string(msg.Data))
+	fmt.Printf("RESP: %+v\n", msg.Header)
+
+	msg, err = replies2.NextMsg(time.Second)
+	fmt.Printf("RESP: %+v\n", msg.Subject)
+	fmt.Printf("RESP2: %+v\n", string(msg.Data))
+	fmt.Printf("RESP2: %+v\n", msg.Header)
+
+	time.Sleep(5 * time.Second)
+
+	// require_Equal(t, len(msgs), 2)
+	// require_Equal(t, len(msgs2), 0)
+
+}
+
 func Benchmark____JetStreamConsumerIsFilteredMatch(b *testing.B) {
 	subject := "foo.bar.do.not.match.any.filter.subject"
 	for n := 1; n <= 1024; n *= 2 {
