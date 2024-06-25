@@ -1278,9 +1278,7 @@ func TestJetStreamConsumerPinned(t *testing.T) {
 	}
 
 	msg, err = replies2.NextMsg(time.Second)
-	fmt.Printf("RESP2 %+v\n", msg.Subject)
-	fmt.Printf("RESP2: %+v\n", string(msg.Data))
-	fmt.Printf("RESP2: %+v\n", msg.Header)
+	require_Error(t, err)
 
 	msg, err = replies.NextMsg(time.Second)
 	fmt.Printf("RESP: %+v\n", msg.Subject)
@@ -1288,15 +1286,10 @@ func TestJetStreamConsumerPinned(t *testing.T) {
 	fmt.Printf("RESP: %+v\n", msg.Header)
 
 	msg, err = replies2.NextMsg(time.Second)
-	if err != nil {
-		fmt.Printf("ERR: %+v\n", err)
-	}
-	fmt.Printf("RESP2: %+v\n", msg.Subject)
-	fmt.Printf("RESP2: %+v\n", string(msg.Data))
-	fmt.Printf("RESP2: %+v\n", msg.Header)
+	require_Error(t, err)
 
 	req = JSApiConsumerGetNextRequest{Batch: 3, Expires: 250 * time.Millisecond, PriorityGroups: PriorityGroups{
-		Id: "A",
+		Id: "AAAAAAAAAAAAAAAA",
 	}}
 	reqb, _ = json.Marshal(req)
 	reply = "THREE"
@@ -1322,7 +1315,6 @@ func TestJetStreamConsumerPinned(t *testing.T) {
 
 	msg, err = replies4.NextMsg(time.Second)
 	fmt.Printf("RESP4444: %+v\n", msg.Subject)
-
 }
 
 func Benchmark____JetStreamConsumerIsFilteredMatch(b *testing.B) {

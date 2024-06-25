@@ -3318,12 +3318,13 @@ func (o *consumer) nextWaiting(sz int) *waitingRequest {
 	fmt.Printf("\nNeeds a new pin: %v\n current:%v\n", needNewPin, o.currentNuid)
 	fmt.Printf("Current NUID: %s\n", o.currentNuid)
 
+	// var prev *waitingRequest
 	for wr := o.waiting.peek(); !o.waiting.isEmpty(); wr = o.waiting.peek() {
 		if wr == nil {
 			fmt.Printf("WR is nil\n")
 			break
 		}
-		fmt.Printf("Current WR NUID: %s REPLY: %v\n", wr.priorityGroups.Id, wr.reply)
+		// fmt.Printf("\nCurrent WR NUID: %s REPLY: %v\n", wr.priorityGroups.Id, wr.reply)
 		// Check if we have max bytes set.
 		if wr.b > 0 {
 			if sz <= wr.b {
@@ -3362,25 +3363,25 @@ func (o *consumer) nextWaiting(sz int) *waitingRequest {
 				wr.priorityGroups.Id = o.currentNuid
 				hdr := fmt.Appendf(nil, JSPullRequestPinIdT, o.currentNuid)
 				// Send the new pinned status immediately
-				fmt.Printf("Sending new pinned status immediately\n")
-				fmt.Printf("UPDATED  NUID: %s\n", o.currentNuid)
+				// fmt.Printf("Sending new pinned status immediately\n")
+				// fmt.Printf("UPDATED  NUID: %s\n", o.currentNuid)
 				// this is a separate statu empty message!
 				o.outq.send(newJSPubMsg(wr.reply, _EMPTY_, _EMPTY_, hdr, nil, nil, 0))
 				return o.waiting.pop()
 			}
 			if o.currentNuid != _EMPTY_ {
-				fmt.Printf("Current NUID: %s WR nuid: %v\n", o.currentNuid, wr.priorityGroups.Id)
+				// fmt.Printf("Current NUID: %s WR nuid: %v\n", o.currentNuid, wr.priorityGroups.Id)
 				// Check if we have a match on the currentNuid
 				if wr.priorityGroups != nil && wr.priorityGroups.Id == o.currentNuid {
-					fmt.Printf("Returning waiting request to pinned\n")
+					// fmt.Printf("Returning waiting request to pinned\n")
 					return o.waiting.pop()
 				} else if wr.priorityGroups.Id == _EMPTY_ {
-					fmt.Printf("WR NUID is empty. Skipping\n")
-					wr = wr.next
+					// fmt.Printf("WR NUID is empty. Skipping\n")
+					o.waiting.head = wr.next
 					continue
 				} else {
 					// FIXME(jrm): we're skipping interest expiration here.
-					fmt.Println("Sending wrong PIN ID")
+					// fmt.Println("Sending wrong PIN ID")
 					o.outq.send(newJSPubMsg(wr.reply, _EMPTY_, _EMPTY_, []byte(JSPullRequestWrongPinID), nil, nil, 0))
 					o.waiting.removeCurrent()
 					if o.node != nil {
@@ -3525,7 +3526,7 @@ func (o *consumer) processNextMsgRequest(reply string, msg []byte) {
 		return
 	} else {
 		if o.pinnedTtl != nil {
-			o.pinnedTtl.Reset(o.cfg.PriorityTimeout)
+			o.pinnedTtl.Reset(time.Second *120)
 		} else {
 			o.pinnedTtl = time.AfterFunc(time.Second*120, func() {
 				o.mu.Lock()
