@@ -3315,8 +3315,8 @@ func (o *consumer) nextWaiting(sz int) *waitingRequest {
 	}
 
 	needNewPin := o.currentNuid == _EMPTY_ && o.cfg.PriorityPolicy == PriorityPinnedClient
-	fmt.Printf("\nNeeds a new pin: %v\n current:%v\n", needNewPin, o.currentNuid)
-	fmt.Printf("Current NUID: %s\n", o.currentNuid)
+	// fmt.Printf("\nNeeds a new pin: %v\n current:%v\n", needNewPin, o.currentNuid)
+	// fmt.Printf("Current NUID: %s\n", o.currentNuid)
 
 	// var prev *waitingRequest
 	for wr := o.waiting.peek(); !o.waiting.isEmpty(); wr = o.waiting.peek() {
