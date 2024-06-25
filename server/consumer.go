@@ -3321,7 +3321,7 @@ func (o *consumer) nextWaiting(sz int) *waitingRequest {
 	// var prev *waitingRequest
 	for wr := o.waiting.peek(); !o.waiting.isEmpty(); wr = o.waiting.peek() {
 		if wr == nil {
-			fmt.Printf("WR is nil\n")
+			// fmt.Printf("WR is nil\n")
 			break
 		}
 		// fmt.Printf("\nCurrent WR NUID: %s REPLY: %v\n", wr.priorityGroups.Id, wr.reply)
@@ -3359,7 +3359,6 @@ func (o *consumer) nextWaiting(sz int) *waitingRequest {
 				//TODO(jrm) assing pinned here. Send status
 				wr.currentPinned = true
 				o.currentNuid = nuid.Next()
-				needNewPin = false
 				wr.priorityGroups.Id = o.currentNuid
 				hdr := fmt.Appendf(nil, JSPullRequestPinIdT, o.currentNuid)
 				// Send the new pinned status immediately
@@ -3521,8 +3520,8 @@ func (o *consumer) processNextMsgRequest(reply string, msg []byte) {
 	if priorityGroups != nil {
 		if priorityGroups.Id != "" && priorityGroups.Id != o.currentNuid && o.currentNuid != _EMPTY_ {
 			// TODO(jrm): pick a nice error code (423 is "locked")
-			fmt.Printf("Sending pinned id mismatch error for %s\n", reply)
-			sendErr(423, fmt.Sprintf("Pinned id mismatch"))
+			// fmt.Printf("Sending pinned id mismatch error for %s\n", reply)
+			sendErr(423, "Pinned id mismatch")
 			return
 		} else {
 			if o.pinnedTtl != nil {
@@ -3530,7 +3529,7 @@ func (o *consumer) processNextMsgRequest(reply string, msg []byte) {
 			} else {
 				o.pinnedTtl = time.AfterFunc(time.Second*120, func() {
 					o.mu.Lock()
-					fmt.Printf("Pinned TTL expired\n")
+					// fmt.Printf("Pinned TTL expired\n")
 					// should we trigger a next message delivery?
 					o.currentNuid = _EMPTY_
 					o.mu.Unlock()
