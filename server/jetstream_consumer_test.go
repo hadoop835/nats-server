@@ -1269,6 +1269,7 @@ func TestJetStreamConsumerPinned(t *testing.T) {
 	require_NoError(t, err)
 
 	msg, err := replies.NextMsg(time.Second)
+	require_NoError(t, err)
 	fmt.Printf("RESP: %+v\n", msg.Subject)
 	fmt.Printf("RESP: %+v\n", string(msg.Data))
 	fmt.Printf("RESP: %+v\n", msg.Header)
@@ -1277,15 +1278,16 @@ func TestJetStreamConsumerPinned(t *testing.T) {
 		t.Fatalf("Expected pinned message, got none")
 	}
 
-	msg, err = replies2.NextMsg(time.Second)
+	_, err = replies2.NextMsg(time.Second)
 	require_Error(t, err)
 
 	msg, err = replies.NextMsg(time.Second)
+	require_NoError(t, err)
 	fmt.Printf("RESP: %+v\n", msg.Subject)
 	fmt.Printf("RESP: %+v\n", string(msg.Data))
 	fmt.Printf("RESP: %+v\n", msg.Header)
 
-	msg, err = replies2.NextMsg(time.Second)
+	_, err = replies2.NextMsg(time.Second)
 	require_Error(t, err)
 
 	req = JSApiConsumerGetNextRequest{Batch: 3, Expires: 250 * time.Millisecond, PriorityGroups: PriorityGroups{
@@ -1298,6 +1300,7 @@ func TestJetStreamConsumerPinned(t *testing.T) {
 	require_NoError(t, err)
 
 	msg, err = replies3.NextMsg(time.Second)
+	require_NoError(t, err)
 	if msg.Header.Get("Status") != "423" {
 		t.Fatalf("Expected 423, got %v", msg.Header.Get("Status"))
 	} else {
@@ -1314,6 +1317,7 @@ func TestJetStreamConsumerPinned(t *testing.T) {
 	require_NoError(t, err)
 
 	msg, err = replies4.NextMsg(time.Second)
+	require_NoError(t, err)
 	fmt.Printf("RESP4444: %+v\n", msg.Subject)
 }
 

@@ -3526,7 +3526,7 @@ func (o *consumer) processNextMsgRequest(reply string, msg []byte) {
 		return
 	} else {
 		if o.pinnedTtl != nil {
-			o.pinnedTtl.Reset(time.Second *120)
+			o.pinnedTtl.Reset(time.Second * 120)
 		} else {
 			o.pinnedTtl = time.AfterFunc(time.Second*120, func() {
 				o.mu.Lock()
