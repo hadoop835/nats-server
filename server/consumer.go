@@ -3518,26 +3518,26 @@ func (o *consumer) processNextMsgRequest(reply string, msg []byte) {
 		return
 	}
 
-	// if priorityGroups != nil {
-	if priorityGroups.Id != "" && priorityGroups.Id != o.currentNuid && o.currentNuid != _EMPTY_ {
-		// TODO(jrm): pick a nice error code (423 is "locked")
-		fmt.Printf("Sending pinned id mismatch error for %s\n", reply)
-		sendErr(423, fmt.Sprintf("Pinned id mismatch"))
-		return
-	} else {
-		if o.pinnedTtl != nil {
-			o.pinnedTtl.Reset(time.Second * 120)
+	if priorityGroups != nil {
+		if priorityGroups.Id != "" && priorityGroups.Id != o.currentNuid && o.currentNuid != _EMPTY_ {
+			// TODO(jrm): pick a nice error code (423 is "locked")
+			fmt.Printf("Sending pinned id mismatch error for %s\n", reply)
+			sendErr(423, fmt.Sprintf("Pinned id mismatch"))
+			return
 		} else {
-			o.pinnedTtl = time.AfterFunc(time.Second*120, func() {
-				o.mu.Lock()
-				fmt.Printf("Pinned TTL expired\n")
-				// should we trigger a next message delivery?
-				o.currentNuid = _EMPTY_
-				o.mu.Unlock()
-			})
+			if o.pinnedTtl != nil {
+				o.pinnedTtl.Reset(time.Second * 120)
+			} else {
+				o.pinnedTtl = time.AfterFunc(time.Second*120, func() {
+					o.mu.Lock()
+					fmt.Printf("Pinned TTL expired\n")
+					// should we trigger a next message delivery?
+					o.currentNuid = _EMPTY_
+					o.mu.Unlock()
+				})
+			}
 		}
 	}
-	// }
 
 	// If we have the max number of requests already pending try to expire.
 	if o.waiting.isFull() {
