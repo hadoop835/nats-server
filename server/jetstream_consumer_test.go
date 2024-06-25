@@ -1252,18 +1252,18 @@ func TestJetStreamConsumerPinned(t *testing.T) {
 	require_NoError(t, err)
 
 	// Send 10 messages to foo
-	for i := 0; i < 10; i++ {
+	for i := 0; i < 100; i++ {
 		sendStreamMsg(t, nc, fmt.Sprintf("foo.%d", i), fmt.Sprintf("msg-%d", i))
 	}
 
-	req := JSApiConsumerGetNextRequest{Batch: 3, Expires: 250 * time.Millisecond}
+	req := JSApiConsumerGetNextRequest{Batch: 3, Expires: 5 * time.Second}
 	reqb, _ := json.Marshal(req)
-	reply := nats.NewInbox()
+	reply := "ONE"
 	replies, err := nc.SubscribeSync(reply)
 	nc.PublishRequest("$JS.API.CONSUMER.MSG.NEXT.TEST.C", reply, reqb)
 	require_NoError(t, err)
 
-	reply2 := nats.NewInbox()
+	reply2 := "TWO"
 	replies2, err := nc.SubscribeSync(reply2)
 	nc.PublishRequest("$JS.API.CONSUMER.MSG.NEXT.TEST.C", reply2, reqb)
 	require_NoError(t, err)
@@ -1272,9 +1272,13 @@ func TestJetStreamConsumerPinned(t *testing.T) {
 	fmt.Printf("RESP: %+v\n", msg.Subject)
 	fmt.Printf("RESP: %+v\n", string(msg.Data))
 	fmt.Printf("RESP: %+v\n", msg.Header)
+	pinned := msg.Header.Get("Nats-Pinned-Id")
+	if pinned == "" {
+		t.Fatalf("Expected pinned message, got none")
+	}
 
 	msg, err = replies2.NextMsg(time.Second)
-	fmt.Printf("RESP: %+v\n", msg.Subject)
+	fmt.Printf("RESP2 %+v\n", msg.Subject)
 	fmt.Printf("RESP2: %+v\n", string(msg.Data))
 	fmt.Printf("RESP2: %+v\n", msg.Header)
 
@@ -1284,14 +1288,40 @@ func TestJetStreamConsumerPinned(t *testing.T) {
 	fmt.Printf("RESP: %+v\n", msg.Header)
 
 	msg, err = replies2.NextMsg(time.Second)
-	fmt.Printf("RESP: %+v\n", msg.Subject)
+	if err != nil {
+		fmt.Printf("ERR: %+v\n", err)
+	}
+	fmt.Printf("RESP2: %+v\n", msg.Subject)
 	fmt.Printf("RESP2: %+v\n", string(msg.Data))
 	fmt.Printf("RESP2: %+v\n", msg.Header)
 
-	time.Sleep(5 * time.Second)
+	req = JSApiConsumerGetNextRequest{Batch: 3, Expires: 250 * time.Millisecond, PriorityGroups: PriorityGroups{
+		Id: "A",
+	}}
+	reqb, _ = json.Marshal(req)
+	reply = "THREE"
+	replies3, err := nc.SubscribeSync(reply)
+	nc.PublishRequest("$JS.API.CONSUMER.MSG.NEXT.TEST.C", reply, reqb)
+	require_NoError(t, err)
 
-	// require_Equal(t, len(msgs), 2)
-	// require_Equal(t, len(msgs2), 0)
+	msg, err = replies3.NextMsg(time.Second)
+	if msg.Header.Get("Status") != "423" {
+		t.Fatalf("Expected 423, got %v", msg.Header.Get("Status"))
+	} else {
+		fmt.Println("Got 423")
+	}
+
+	req = JSApiConsumerGetNextRequest{Batch: 3, Expires: 250 * time.Millisecond, PriorityGroups: PriorityGroups{
+		Id: pinned,
+	}}
+	reqb, _ = json.Marshal(req)
+	reply = "FOUR"
+	replies4, err := nc.SubscribeSync(reply)
+	nc.PublishRequest("$JS.API.CONSUMER.MSG.NEXT.TEST.C", reply, reqb)
+	require_NoError(t, err)
+
+	msg, err = replies4.NextMsg(time.Second)
+	fmt.Printf("RESP4444: %+v\n", msg.Subject)
 
 }
 

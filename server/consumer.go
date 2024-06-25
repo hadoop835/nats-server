@@ -37,7 +37,7 @@ import (
 const (
 	JSPullRequestPendingMsgs  = "Nats-Pending-Messages"
 	JSPullRequestPendingBytes = "Nats-Pending-Bytes"
-	JSPullRequestWrongPinID   = "Nats-Wrong-Pin-Id"
+	JSPullRequestWrongPinID   = "NATS/1.0 423 Nats-Wrong-Pin-Id\r\n\r\n"
 	JSPullRequestNatsPinId    = "Nats-Pin-Id"
 )
 
@@ -3315,11 +3315,15 @@ func (o *consumer) nextWaiting(sz int) *waitingRequest {
 	}
 
 	needNewPin := o.currentNuid == _EMPTY_ && o.cfg.PriorityPolicy == PriorityPinnedClient
+	fmt.Printf("\nNeeds a new pin: %v\n current:%v\n", needNewPin, o.currentNuid)
+	fmt.Printf("Current NUID: %s\n", o.currentNuid)
 
 	for wr := o.waiting.peek(); !o.waiting.isEmpty(); wr = o.waiting.peek() {
 		if wr == nil {
+			fmt.Printf("WR is nil\n")
 			break
 		}
+		fmt.Printf("Current WR NUID: %s REPLY: %v\n", wr.priorityGroups.Id, wr.reply)
 		// Check if we have max bytes set.
 		if wr.b > 0 {
 			if sz <= wr.b {
@@ -3358,31 +3362,31 @@ func (o *consumer) nextWaiting(sz int) *waitingRequest {
 				wr.priorityGroups.Id = o.currentNuid
 				hdr := fmt.Appendf(nil, JSPullRequestPinIdT, o.currentNuid)
 				// Send the new pinned status immediately
+				fmt.Printf("Sending new pinned status immediately\n")
+				fmt.Printf("UPDATED  NUID: %s\n", o.currentNuid)
+				// this is a separate statu empty message!
 				o.outq.send(newJSPubMsg(wr.reply, _EMPTY_, _EMPTY_, hdr, nil, nil, 0))
 				return o.waiting.pop()
 			}
 			if o.currentNuid != _EMPTY_ {
+				fmt.Printf("Current NUID: %s WR nuid: %v\n", o.currentNuid, wr.priorityGroups.Id)
 				// Check if we have a match on the currentNuid
-				if wr.priorityGroups.Id == o.currentNuid {
+				if wr.priorityGroups != nil && wr.priorityGroups.Id == o.currentNuid {
+					fmt.Printf("Returning waiting request to pinned\n")
 					return o.waiting.pop()
+				} else if wr.priorityGroups.Id == _EMPTY_ {
+					fmt.Printf("WR NUID is empty. Skipping\n")
+					wr = wr.next
+					continue
 				} else {
 					// FIXME(jrm): we're skipping interest expiration here.
+					fmt.Println("Sending wrong PIN ID")
 					o.outq.send(newJSPubMsg(wr.reply, _EMPTY_, _EMPTY_, []byte(JSPullRequestWrongPinID), nil, nil, 0))
 					o.waiting.removeCurrent()
 					if o.node != nil {
 						o.removeClusterPendingRequest(wr.reply)
 					}
-					wr = wr.next
-					continue
-				}
-			}
-			if o.currentNuid != "" {
-				// Check if we have a match on the currentNuid
-				if wr.priorityGroups.Id == o.currentNuid {
-					return o.waiting.pop()
-				} else {
-					// FIXME(jrm): we're skipping interest expiration here.
-					wr = wr.next
+					wr.recycle()
 					continue
 				}
 			}
@@ -3416,10 +3420,6 @@ func (o *consumer) nextWaiting(sz int) *waitingRequest {
 			o.removeClusterPendingRequest(wr.reply)
 		}
 		wr.recycle()
-	}
-
-	if o.currentNuid != _EMPTY_ && o.cfg.PriorityPolicy == PriorityPinnedClient {
-		o.currentNuid = _EMPTY_
 	}
 
 	return nil
@@ -3518,17 +3518,19 @@ func (o *consumer) processNextMsgRequest(reply string, msg []byte) {
 	}
 
 	// if priorityGroups != nil {
-	if priorityGroups.Id != o.currentNuid && o.currentNuid != _EMPTY_ {
+	if priorityGroups.Id != "" && priorityGroups.Id != o.currentNuid && o.currentNuid != _EMPTY_ {
 		// TODO(jrm): pick a nice error code (423 is "locked")
-		fmt.Println("Sending pinned id mismatch error")
+		fmt.Printf("Sending pinned id mismatch error for %s\n", reply)
 		sendErr(423, fmt.Sprintf("Pinned id mismatch"))
 		return
 	} else {
 		if o.pinnedTtl != nil {
 			o.pinnedTtl.Reset(o.cfg.PriorityTimeout)
 		} else {
-			o.pinnedTtl = time.AfterFunc(o.cfg.PriorityTimeout, func() {
+			o.pinnedTtl = time.AfterFunc(time.Second*120, func() {
 				o.mu.Lock()
+				fmt.Printf("Pinned TTL expired\n")
+				// should we trigger a next message delivery?
 				o.currentNuid = _EMPTY_
 				o.mu.Unlock()
 			})
