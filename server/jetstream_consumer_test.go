@@ -1270,9 +1270,7 @@ func TestJetStreamConsumerPinned(t *testing.T) {
 
 	msg, err := replies.NextMsg(time.Second)
 	require_NoError(t, err)
-	fmt.Printf("RESP: %+v\n", msg.Subject)
-	fmt.Printf("RESP: %+v\n", string(msg.Data))
-	fmt.Printf("RESP: %+v\n", msg.Header)
+	require_NotNil(t, msg)
 	pinned := msg.Header.Get("Nats-Pinned-Id")
 	if pinned == "" {
 		t.Fatalf("Expected pinned message, got none")
@@ -1283,15 +1281,13 @@ func TestJetStreamConsumerPinned(t *testing.T) {
 
 	msg, err = replies.NextMsg(time.Second)
 	require_NoError(t, err)
-	fmt.Printf("RESP: %+v\n", msg.Subject)
-	fmt.Printf("RESP: %+v\n", string(msg.Data))
-	fmt.Printf("RESP: %+v\n", msg.Header)
+	require_NotNil(t, msg)
 
 	_, err = replies2.NextMsg(time.Second)
 	require_Error(t, err)
 
 	req = JSApiConsumerGetNextRequest{Batch: 3, Expires: 250 * time.Millisecond, PriorityGroups: PriorityGroups{
-		Id: "AAAAAAAAAAAAAAAA",
+		Id: "WRONG",
 	}}
 	reqb, _ = json.Marshal(req)
 	reply = "THREE"
@@ -1318,7 +1314,67 @@ func TestJetStreamConsumerPinned(t *testing.T) {
 
 	msg, err = replies4.NextMsg(time.Second)
 	require_NoError(t, err)
-	fmt.Printf("RESP4444: %+v\n", msg.Subject)
+	require_NotNil(t, msg)
+}
+
+func TestJetStreamConsumerOverflow(t *testing.T) {
+	s := RunBasicJetStreamServer(t)
+	defer s.Shutdown()
+
+	nc, _ := jsClientConnect(t, s)
+	defer nc.Close()
+
+	acc := s.GlobalAccount()
+
+	mset, err := acc.addStream(&StreamConfig{
+		Name:      "TEST",
+		Subjects:  []string{"foo.>", "bar", "baz"},
+		Retention: LimitsPolicy,
+		Storage:   FileStorage,
+	})
+	require_NoError(t, err)
+
+	consumer, err := mset.addConsumer(&ConsumerConfig{
+		Durable:        "C",
+		FilterSubject:  "foo.>",
+		PriorityGroups: []string{"A"},
+		PriorityPolicy: PriorityOverflow,
+		AckPolicy:      AckExplicit,
+	})
+	require_NoError(t, err)
+
+	sendStreamMsg(t, nc, "foo.1", "msg-1")
+
+	req := JSApiConsumerGetNextRequest{Batch: 10, Expires: 90 * time.Second, PriorityGroups: PriorityGroups{
+		MinPending: 10,
+	}}
+	replies := sendRequest(t, nc, "SIMPLE", req)
+	msg, err := replies.NextMsg(time.Second)
+	require_Error(t, err)
+
+	for i := 0; i < 50; i++ {
+		sendStreamMsg(t, nc, fmt.Sprintf("foo.%d", i), fmt.Sprintf("msg-%d", i))
+	}
+
+	fmt.Printf("num pending: %v\n", consumer.npc)
+
+	msg, err = replies.NextMsg(time.Second * 5)
+	// require_NoError(t, err)
+	// require_NotNil(t, msg)
+
+	replies2 := sendRequest(t, nc, "SIMPLE2", req)
+	msg, err = replies2.NextMsg(time.Second)
+	require_NoError(t, err)
+	require_NotNil(t, msg)
+
+}
+
+func sendRequest(t *testing.T, nc *nats.Conn, reply string, req JSApiConsumerGetNextRequest) *nats.Subscription {
+	reqb, _ := json.Marshal(req)
+	replies, err := nc.SubscribeSync(reply)
+	nc.PublishRequest("$JS.API.CONSUMER.MSG.NEXT.TEST.C", reply, reqb)
+	require_NoError(t, err)
+	return replies
 }
 
 func Benchmark____JetStreamConsumerIsFilteredMatch(b *testing.B) {

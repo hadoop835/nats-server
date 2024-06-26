@@ -3248,6 +3248,16 @@ func (wq *waitQueue) peek() *waitingRequest {
 	return wq.head
 }
 
+func (wq *waitQueue) cycle() {
+	wr := wq.peek()
+	if wr != nil {
+		// Always remove current now on a pop, and move to end if still valid.
+		// If we were the only one don't need to remove since this can be a no-op.
+		wq.removeCurrent()
+		wq.add(wr)
+	}
+}
+
 // pop will return the next request and move the read cursor.
 // This will now place a request that still has pending items at the ends of the list.
 func (wq *waitQueue) pop() *waitingRequest {
@@ -3371,24 +3381,22 @@ func (o *consumer) nextWaiting(sz int) *waitingRequest {
 				// fmt.Printf("UPDATED  NUID: %s\n", o.currentNuid)
 				// this is a separate statu empty message!
 				o.outq.send(newJSPubMsg(wr.reply, _EMPTY_, _EMPTY_, hdr, nil, nil, 0))
-				return o.waiting.pop()
-			}
-			if o.currentNuid != _EMPTY_ {
+				// return o.waiting.pop()
+			} else if o.currentNuid != _EMPTY_ {
 				// fmt.Printf("Current NUID: %s WR nuid: %v\n", o.currentNuid, wr.priorityGroups.Id)
 				// Check if we have a match on the currentNuid
 				if wr.priorityGroups != nil && wr.priorityGroups.Id == o.currentNuid {
 					// fmt.Printf("Returning waiting request to pinned\n")
-					return o.waiting.pop()
+					// return o.waiting.pop()
 				} else if wr.priorityGroups.Id == _EMPTY_ {
 					// fmt.Printf("WR NUID is empty. Skipping\n")
-					o.waiting.pop()
+					o.waiting.cycle()
 					if wr == lastRequest {
-						// fmt.Printf("Last request. Returning nil\n")
+						fmt.Printf("Last request. Returning nil\n")
 						return nil
 					}
 					continue
 				} else {
-					// FIXME(jrm): we're skipping interest expiration here.
 					// fmt.Println("Sending wrong PIN ID")
 					o.outq.send(newJSPubMsg(wr.reply, _EMPTY_, _EMPTY_, []byte(JSPullRequestWrongPinID), nil, nil, 0))
 					o.waiting.removeCurrent()
@@ -3398,6 +3406,22 @@ func (o *consumer) nextWaiting(sz int) *waitingRequest {
 					}
 					wr.recycle()
 					continue
+				}
+			}
+
+			if o.cfg.PriorityPolicy == PriorityOverflow {
+				fmt.Printf("Checking for overflow\n %v\n pending: %v\n", wr.priorityGroups.MinPending, o.npc)
+				// fmt.Printf("Checking for overflow\n")
+				if wr.priorityGroups != nil && int64(wr.priorityGroups.MinPending) >= o.npc {
+					fmt.Println("Overflow not matched")
+					o.waiting.cycle()
+					if wr == lastRequest {
+						fmt.Println("LAST ONE")
+						return nil
+					}
+					continue
+				} else {
+					fmt.Println("matched")
 				}
 			}
 			if len(rr.psubs)+len(rr.qsubs) > 0 {
