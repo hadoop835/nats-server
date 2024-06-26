@@ -3318,7 +3318,7 @@ func (o *consumer) nextWaiting(sz int) *waitingRequest {
 	// fmt.Printf("\nNeeds a new pin: %v\n current:%v\n", needNewPin, o.currentNuid)
 	// fmt.Printf("Current NUID: %s\n", o.currentNuid)
 
-	// var prev *waitingRequest
+	lastRequest := o.waiting.tail
 	for wr := o.waiting.peek(); !o.waiting.isEmpty(); wr = o.waiting.peek() {
 		if wr == nil {
 			// fmt.Printf("WR is nil\n")
@@ -3376,7 +3376,11 @@ func (o *consumer) nextWaiting(sz int) *waitingRequest {
 					return o.waiting.pop()
 				} else if wr.priorityGroups.Id == _EMPTY_ {
 					// fmt.Printf("WR NUID is empty. Skipping\n")
-					o.waiting.head = wr.next
+					o.waiting.pop()
+					if wr == lastRequest {
+						// fmt.Printf("Last request. Returning nil\n")
+						return nil
+					}
 					continue
 				} else {
 					// FIXME(jrm): we're skipping interest expiration here.
@@ -3384,6 +3388,7 @@ func (o *consumer) nextWaiting(sz int) *waitingRequest {
 					o.outq.send(newJSPubMsg(wr.reply, _EMPTY_, _EMPTY_, []byte(JSPullRequestWrongPinID), nil, nil, 0))
 					o.waiting.removeCurrent()
 					if o.node != nil {
+						needNewPin = false
 						o.removeClusterPendingRequest(wr.reply)
 					}
 					wr.recycle()
