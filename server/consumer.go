@@ -116,9 +116,9 @@ type ConsumerConfig struct {
 	PauseUntil *time.Time `json:"pause_until,omitempty"`
 
 	// Priority groups
-	PriorityGroups  []string       `json:"priority_groups,omitempty"`
-	PriorityPolicy  PriorityPolicy `json:"priority_policy,omitempty"`
-	PriorityTimeout time.Duration  `json:"priority_timeout,omitempty"`
+	PriorityGroups []string       `json:"priority_groups,omitempty"`
+	PriorityPolicy PriorityPolicy `json:"priority_policy,omitempty"`
+	PinnedTTL      time.Duration  `json:"priority_timeout,omitempty"`
 }
 
 // SequenceInfo has both the consumer and the stream sequence and last activity.
@@ -471,6 +471,9 @@ const (
 	JsFlowControlMaxPending = 32 * 1024 * 1024
 	// JsDefaultMaxAckPending is set for consumers with explicit ack that do not set the max ack pending.
 	JsDefaultMaxAckPending = 1000
+	// JsDefaultPinnedTTL is the default grace period for the pinned consumer to send a new request before a new pin
+	// is picked by a server.
+	JsDefaultPinnedTTL = 120 * time.Second
 )
 
 // Helper function to set consumer config defaults from above.
@@ -511,6 +514,9 @@ func setConsumerConfigDefaults(config *ConsumerConfig, streamCfg *StreamConfig, 
 	// if applicable set max request batch size
 	if config.DeliverSubject == _EMPTY_ && config.MaxRequestBatch == 0 && lim.MaxRequestBatch > 0 {
 		config.MaxRequestBatch = lim.MaxRequestBatch
+	}
+	if config.PinnedTTL == 0 {
+		config.PinnedTTL = JsDefaultPinnedTTL
 	}
 }
 
@@ -3175,7 +3181,6 @@ type waitQueue struct {
 	last   time.Time
 	head   *waitingRequest
 	tail   *waitingRequest
-	pinned *waitingRequest
 	// TODO(jrm): do we want a new data structure here for pinned pull requests?
 	// like pinned map[string]*waitingRequest where key is group?
 }
@@ -3530,9 +3535,9 @@ func (o *consumer) processNextMsgRequest(reply string, msg []byte) {
 			return
 		} else {
 			if o.pinnedTtl != nil {
-				o.pinnedTtl.Reset(time.Second * 120)
+				o.pinnedTtl.Reset(o.cfg.PinnedTTL)
 			} else {
-				o.pinnedTtl = time.AfterFunc(time.Second*120, func() {
+				o.pinnedTtl = time.AfterFunc(o.cfg.PinnedTTL, func() {
 					o.mu.Lock()
 					// fmt.Printf("Pinned TTL expired\n")
 					// should we trigger a next message delivery?
