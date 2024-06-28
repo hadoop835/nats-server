@@ -1392,6 +1392,26 @@ func TestJetStreamConsumerOverflow(t *testing.T) {
 	msg, err := fetchWithOverflow.NextMsg(time.Second * 5)
 	require_NoError(t, err)
 	require_NotNil(t, msg)
+
+	// But one with max ack pending should get nothing.
+	req = JSApiConsumerGetNextRequest{Batch: 1, Expires: 90 * time.Second, PriorityGroups: PriorityGroups{
+		MinAckPending: 50,
+	}}
+	maxAckPending := sendRequest(t, nc, "maxAckPending", req)
+	_, err = maxAckPending.NextMsg(time.Second)
+	require_Error(t, err)
+
+	// However, when we miss a lot of acks, we should get messages on overflow with max ack pending.
+	req = JSApiConsumerGetNextRequest{Batch: 200, Expires: 90 * time.Second}
+	fetchNoOverflow = sendRequest(t, nc, "without_overflow", req)
+	noOverflowMsg, err = fetchNoOverflow.NextMsg(time.Second)
+	require_NoError(t, err)
+	require_NotNil(t, noOverflowMsg)
+
+	msg, err = maxAckPending.NextMsg(time.Second)
+	require_NoError(t, err)
+	require_NotNil(t, msg)
+
 }
 
 func sendRequest(t *testing.T, nc *nats.Conn, reply string, req JSApiConsumerGetNextRequest) *nats.Subscription {

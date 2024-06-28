@@ -3129,8 +3129,8 @@ func (o *consumer) needAck(sseq uint64, subj string) bool {
 
 type PriorityGroups struct {
 	Group         string `json:"group,omitempty"`
-	MinPending    int    `json:"min_pending,omitempty"`
-	MinAckPending int    `json:"min_ack_pending,omitempty"`
+	MinPending    int64  `json:"min_pending,omitempty"`
+	MinAckPending int64  `json:"min_ack_pending,omitempty"`
 	Id            string `json:"id,omitempty"`
 }
 
@@ -3446,7 +3446,9 @@ func (o *consumer) nextWaiting(sz int) *waitingRequest {
 			if o.cfg.PriorityPolicy == PriorityOverflow {
 				// fmt.Printf("Checking for overflow\n %v\n pending: %v\n", wr.priorityGroups.MinPending, o.npc)
 				// fmt.Printf("Checking for overflow\n")
-				if wr.priorityGroups != nil && int64(wr.priorityGroups.MinPending) >= o.npc {
+				if wr.priorityGroups != nil &&
+					(wr.priorityGroups.MinPending > 0 && wr.priorityGroups.MinPending >= o.npc ||
+						wr.priorityGroups.MinAckPending > 0 && wr.priorityGroups.MinAckPending >= int64(len(o.pending))) {
 					// fmt.Println("Overflow not matched")
 					o.waiting.cycle()
 					if wr == lastRequest {
