@@ -1272,7 +1272,7 @@ func TestJetStreamConsumerPinned(t *testing.T) {
 	require_NoError(t, err)
 	require_NotNil(t, msg)
 	// Check if we are really pinned.
-	pinned := msg.Header.Get("Nats-Pinned-Id")
+	pinned := msg.Header.Get("Nats-Pin-Id")
 	if pinned == "" {
 		t.Fatalf("Expected pinned message, got none")
 	}
@@ -1305,10 +1305,7 @@ func TestJetStreamConsumerPinned(t *testing.T) {
 	require_NoError(t, err)
 	if msg.Header.Get("Status") != "423" {
 		t.Fatalf("Expected 423, got %v", msg.Header.Get("Status"))
-	} else {
-		fmt.Println("Got 423")
 	}
-
 	// Send a new request with a good pinned ID.
 	req = JSApiConsumerGetNextRequest{Batch: 3, Expires: 250 * time.Millisecond, PriorityGroups: PriorityGroups{
 		Id: pinned,
