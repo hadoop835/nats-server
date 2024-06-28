@@ -44,10 +44,6 @@ const (
 // Headers sent when batch size was completed, but there were remaining bytes.
 const JsPullRequestRemainingBytesT = "NATS/1.0 409 Batch Completed\r\n%s: %d\r\n%s: %d\r\n\r\n"
 
-// TODO(jrm): find a good status code for this.
-const JSPullRequestPinIdT = "NATS/1.0\r\nNats-Pinned-Id: %s\r\n\r\n"
-const JSPullRequestPinIdHeaderT = "Nats-Pinned-Id: %s\r\n"
-
 type ConsumerInfo struct {
 	Stream         string          `json:"stream_name"`
 	Name           string          `json:"name"`
@@ -4295,7 +4291,7 @@ func (o *consumer) loopAndGatherMsgs(qch chan struct{}) {
 				// fmt.Printf("Adding pin header\n")
 				// fmt.Printf("Headers: %+v\n", string(pmsg.hdr))
 				if len(pmsg.hdr) == 0 {
-					pmsg.hdr = genHeader(pmsg.hdr, "Nats-Pinned-Id", o.currentNuid)
+					pmsg.hdr = genHeader(pmsg.hdr, JSPullRequestNatsPinId, o.currentNuid)
 					pmsg.buf = append(pmsg.hdr, pmsg.msg...)
 				} else {
 					bufLen := len(pmsg.hdr) + len(pmsg.msg)
