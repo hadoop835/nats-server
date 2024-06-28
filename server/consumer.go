@@ -46,6 +46,7 @@ const JsPullRequestRemainingBytesT = "NATS/1.0 409 Batch Completed\r\n%s: %d\r\n
 
 // TODO(jrm): find a good status code for this.
 const JSPullRequestPinIdT = "NATS/1.0\r\nNats-Pinned-Id: %s\r\n\r\n"
+const JSPullRequestPinIdHeaderT = "Nats-Pinned-Id: %s\r\n"
 
 type ConsumerInfo struct {
 	Stream         string          `json:"stream_name"`
@@ -210,15 +211,52 @@ const (
 	PriorityPinnedClient
 )
 
+const (
+	PriorityNoneJSONString         = `"none"`
+	PriorityOverflowJSONString     = `"overflow"`
+	PriorityPinnedClientJSONString = `"pinned_client"`
+)
+
+var (
+	PriorityNoneJSONBytes         = []byte(PriorityNoneJSONString)
+	PriorityOverflowJSONBytes     = []byte(PriorityOverflowJSONString)
+	PriorityPinnedClientJSONBytes = []byte(PriorityPinnedClientJSONString)
+)
+
 func (pp PriorityPolicy) String() string {
 	switch pp {
 	case PriorityOverflow:
-		return "overflow"
+		return PriorityOverflowJSONString
 	case PriorityPinnedClient:
-		return "pinned_client"
+		return PriorityPinnedClientJSONString
 	default:
-		return "none"
+		return PriorityNoneJSONString
 	}
+}
+
+func (pp PriorityPolicy) MarshalJSON() ([]byte, error) {
+	switch pp {
+	case PriorityOverflow:
+		return PriorityOverflowJSONBytes, nil
+	case PriorityPinnedClient:
+		return PriorityPinnedClientJSONBytes, nil
+	default:
+		return nil, fmt.Errorf("unknown priority policy: %v", pp)
+	}
+}
+
+func (pp *PriorityPolicy) UnmarshalJSON(data []byte) error {
+	switch string(data) {
+	case PriorityOverflowJSONString:
+		*pp = PriorityOverflow
+	case PriorityPinnedClientJSONString:
+		*pp = PriorityPinnedClient
+	case PriorityNoneJSONString:
+		*pp = PriorityNone
+	default:
+		return fmt.Errorf("unknown priority policy: %v", string(data))
+	}
+	return nil
 }
 
 // DeliverPolicy determines how the consumer should select the first message to deliver.
@@ -3375,12 +3413,12 @@ func (o *consumer) nextWaiting(sz int) *waitingRequest {
 				wr.currentPinned = true
 				o.currentNuid = nuid.Next()
 				wr.priorityGroups.Id = o.currentNuid
-				hdr := fmt.Appendf(nil, JSPullRequestPinIdT, o.currentNuid)
+				// hdr := fmt.Appendf(nil, JSPullRequestPinIdT, o.currentNuid)
 				// Send the new pinned status immediately
 				// fmt.Printf("Sending new pinned status immediately\n")
 				// fmt.Printf("UPDATED  NUID: %s\n", o.currentNuid)
 				// this is a separate statu empty message!
-				o.outq.send(newJSPubMsg(wr.reply, _EMPTY_, _EMPTY_, hdr, nil, nil, 0))
+				// o.outq.send(newJSPubMsg(wr.reply, _EMPTY_, _EMPTY_, hdr, nil, nil, 0))
 				// return o.waiting.pop()
 			} else if o.currentNuid != _EMPTY_ {
 				// fmt.Printf("Current NUID: %s WR nuid: %v\n", o.currentNuid, wr.priorityGroups.Id)
@@ -4173,6 +4211,7 @@ func (o *consumer) loopAndGatherMsgs(qch chan struct{}) {
 			delay    time.Duration
 			sz       int
 			wrn, wrb int
+			isPinned bool
 		)
 
 		o.mu.Lock()
@@ -4253,6 +4292,23 @@ func (o *consumer) loopAndGatherMsgs(qch chan struct{}) {
 		} else if wr := o.nextWaiting(sz); wr != nil {
 			wrn, wrb = wr.n, wr.b
 			dsubj = wr.reply
+			isPinned = wr.currentPinned
+			if isPinned {
+				// fmt.Printf("Adding pin header\n")
+				// fmt.Printf("Headers: %+v\n", string(pmsg.hdr))
+				if len(pmsg.hdr) == 0 {
+					pmsg.hdr = genHeader(pmsg.hdr, "Nats-Pinned-Id", o.currentNuid)
+					pmsg.buf = append(pmsg.hdr, pmsg.msg...)
+				} else {
+					bufLen := len(pmsg.hdr) + len(pmsg.msg)
+					pmsg.buf = make([]byte, bufLen)
+					pmsg.buf = append(pmsg.hdr, pmsg.msg...)
+
+				}
+
+				sz = len(pmsg.subj) + len(ackReply) + len(pmsg.hdr) + len(pmsg.msg)
+
+			}
 			if done := wr.recycleIfDone(); done && o.node != nil {
 				o.removeClusterPendingRequest(dsubj)
 			} else if !done && wr.hb > 0 {
@@ -4275,6 +4331,7 @@ func (o *consumer) loopAndGatherMsgs(qch chan struct{}) {
 			pmsg.returnToPool()
 			goto waitForMsgs
 		}
+		// If we are a fresh pin, add a header
 
 		// If we are in a replay scenario and have not caught up check if we need to delay here.
 		if o.replay && lts > 0 {
@@ -4309,6 +4366,8 @@ func (o *consumer) loopAndGatherMsgs(qch chan struct{}) {
 				o.mu.Lock()
 			}
 		}
+
+		fmt.Printf("Sending message with headers: %+v\n", string(pmsg.hdr))
 
 		// Do actual delivery.
 		o.deliverMsg(dsubj, ackReply, pmsg, dc, rp)
