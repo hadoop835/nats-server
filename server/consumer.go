@@ -3448,18 +3448,16 @@ func (o *consumer) nextWaiting(sz int) *waitingRequest {
 			}
 
 			if o.cfg.PriorityPolicy == PriorityOverflow {
-				fmt.Printf("Checking for overflow\n %v\n pending: %v\n", wr.priorityGroups.MinPending, o.npc)
+				// fmt.Printf("Checking for overflow\n %v\n pending: %v\n", wr.priorityGroups.MinPending, o.npc)
 				// fmt.Printf("Checking for overflow\n")
 				if wr.priorityGroups != nil && int64(wr.priorityGroups.MinPending) >= o.npc {
-					fmt.Println("Overflow not matched")
+					// fmt.Println("Overflow not matched")
 					o.waiting.cycle()
 					if wr == lastRequest {
-						fmt.Println("LAST ONE")
+						// fmt.Println("LAST ONE")
 						return nil
 					}
 					continue
-				} else {
-					fmt.Println("matched")
 				}
 			}
 			if len(rr.psubs)+len(rr.qsubs) > 0 {
