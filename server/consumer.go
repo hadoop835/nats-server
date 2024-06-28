@@ -3430,7 +3430,7 @@ func (o *consumer) nextWaiting(sz int) *waitingRequest {
 					// fmt.Printf("WR NUID is empty. Skipping\n")
 					o.waiting.cycle()
 					if wr == lastRequest {
-						fmt.Printf("Last request. Returning nil\n")
+						// fmt.Printf("Last request. Returning nil\n")
 						return nil
 					}
 					continue
@@ -4364,8 +4364,6 @@ func (o *consumer) loopAndGatherMsgs(qch chan struct{}) {
 				o.mu.Lock()
 			}
 		}
-
-		fmt.Printf("Sending message with headers: %+v\n", string(pmsg.hdr))
 
 		// Do actual delivery.
 		o.deliverMsg(dsubj, ackReply, pmsg, dc, rp)

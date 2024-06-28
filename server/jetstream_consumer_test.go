@@ -1355,7 +1355,7 @@ func TestJetStreamConsumerOverflow(t *testing.T) {
 		MinPending: 10,
 	}}
 	replies := sendRequest(t, nc, "SIMPLE", req)
-	msg, err := replies.NextMsg(time.Second)
+	_, err = replies.NextMsg(time.Second)
 	require_Error(t, err)
 
 	for i := 0; i < 50; i++ {
@@ -1364,9 +1364,9 @@ func TestJetStreamConsumerOverflow(t *testing.T) {
 
 	fmt.Printf("num pending: %v\n", consumer.npc)
 
-	msg, err = replies.NextMsg(time.Second * 5)
-	// require_NoError(t, err)
-	// require_NotNil(t, msg)
+	msg, err := replies.NextMsg(time.Second * 5)
+	require_NoError(t, err)
+	require_NotNil(t, msg)
 
 	replies2 := sendRequest(t, nc, "SIMPLE2", req)
 	msg, err = replies2.NextMsg(time.Second)
