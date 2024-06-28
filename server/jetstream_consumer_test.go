@@ -1251,7 +1251,6 @@ func TestJetStreamConsumerPinned(t *testing.T) {
 	})
 	require_NoError(t, err)
 
-	// Send 10 messages to foo
 	for i := 0; i < 100; i++ {
 		sendStreamMsg(t, nc, fmt.Sprintf("foo.%d", i), fmt.Sprintf("msg-%d", i))
 	}
@@ -1268,39 +1267,40 @@ func TestJetStreamConsumerPinned(t *testing.T) {
 	nc.PublishRequest("$JS.API.CONSUMER.MSG.NEXT.TEST.C", reply2, reqb)
 	require_NoError(t, err)
 
-	fmt.Println("Starting to read messages")
-
+	// This is the firs Pull Request, so it should becom the pinned one.
 	msg, err := replies.NextMsg(time.Second)
 	require_NoError(t, err)
 	require_NotNil(t, msg)
-	fmt.Println("Got message. Checking pinned")
-	fmt.Printf("HEADER: %+v\n", msg.Header)
-	pinned := "bla"
-	// pinned := msg.Header.Get("Nats-Pinned-Id")
-	// if pinned == "" {
-	// 	t.Fatalf("Expected pinned message, got none")
-	// }
-	fmt.Println("Pinned message found")
+	// Check if we are really pinned.
+	pinned := msg.Header.Get("Nats-Pinned-Id")
+	if pinned == "" {
+		t.Fatalf("Expected pinned message, got none")
+	}
 
+	// Here, we should have pull request that just idles, as it is not pinned.
 	_, err = replies2.NextMsg(time.Second)
 	require_Error(t, err)
 
+	// While the pinned one continues to get messages.
 	msg, err = replies.NextMsg(time.Second)
 	require_NoError(t, err)
 	require_NotNil(t, msg)
 
+	// Just making sure that the other one does not get round-robined message.
 	_, err = replies2.NextMsg(time.Second)
 	require_Error(t, err)
 
+	// Now let's send a request with wrong pinned id.
 	req = JSApiConsumerGetNextRequest{Batch: 3, Expires: 250 * time.Millisecond, PriorityGroups: PriorityGroups{
 		Id: "WRONG",
 	}}
-	reqb, _ = json.Marshal(req)
-	reply = "THREE"
+	reqBad, err := json.Marshal(req)
+	require_NoError(t, err)
 	replies3, err := nc.SubscribeSync(reply)
-	nc.PublishRequest("$JS.API.CONSUMER.MSG.NEXT.TEST.C", reply, reqb)
+	nc.PublishRequest("$JS.API.CONSUMER.MSG.NEXT.TEST.C", reply, reqBad)
 	require_NoError(t, err)
 
+	// and make sure we got error telling us it's wrong ID.
 	msg, err = replies3.NextMsg(time.Second)
 	require_NoError(t, err)
 	if msg.Header.Get("Status") != "423" {
@@ -1309,6 +1309,7 @@ func TestJetStreamConsumerPinned(t *testing.T) {
 		fmt.Println("Got 423")
 	}
 
+	// Send a new request with a good pinned ID.
 	req = JSApiConsumerGetNextRequest{Batch: 3, Expires: 250 * time.Millisecond, PriorityGroups: PriorityGroups{
 		Id: pinned,
 	}}
@@ -1318,11 +1319,13 @@ func TestJetStreamConsumerPinned(t *testing.T) {
 	nc.PublishRequest("$JS.API.CONSUMER.MSG.NEXT.TEST.C", reply, reqb)
 	require_NoError(t, err)
 
+	// and check that we got a message.
 	msg, err = replies4.NextMsg(time.Second)
 	require_NoError(t, err)
 	require_NotNil(t, msg)
 }
 
+// Simple happy path test for consumer with overflow.
 func TestJetStreamConsumerOverflow(t *testing.T) {
 	s := RunBasicJetStreamServer(t)
 	defer s.Shutdown()
@@ -1340,7 +1343,7 @@ func TestJetStreamConsumerOverflow(t *testing.T) {
 	})
 	require_NoError(t, err)
 
-	consumer, err := mset.addConsumer(&ConsumerConfig{
+	_, err = mset.addConsumer(&ConsumerConfig{
 		Durable:        "C",
 		FilterSubject:  "foo.>",
 		PriorityGroups: []string{"A"},
@@ -1350,29 +1353,48 @@ func TestJetStreamConsumerOverflow(t *testing.T) {
 	require_NoError(t, err)
 
 	sendStreamMsg(t, nc, "foo.1", "msg-1")
-
-	req := JSApiConsumerGetNextRequest{Batch: 10, Expires: 90 * time.Second, PriorityGroups: PriorityGroups{
-		MinPending: 10,
+	// check if overflow of 1 works
+	req := JSApiConsumerGetNextRequest{Batch: 1, Expires: 90 * time.Second, PriorityGroups: PriorityGroups{
+		MinPending: 1,
 	}}
-	replies := sendRequest(t, nc, "SIMPLE", req)
-	_, err = replies.NextMsg(time.Second)
+	singleOverflow := sendRequest(t, nc, "singleOverflow", req)
+	_, err = singleOverflow.NextMsg(time.Second)
 	require_Error(t, err)
 
-	for i := 0; i < 50; i++ {
-		sendStreamMsg(t, nc, fmt.Sprintf("foo.%d", i), fmt.Sprintf("msg-%d", i))
+	sendStreamMsg(t, nc, "foo.1", "msg-1")
+	sendStreamMsg(t, nc, "foo.1", "msg-1")
+
+	// overflow set to 10, so we should not get any messages.
+	req = JSApiConsumerGetNextRequest{Batch: 1, Expires: 90 * time.Second, PriorityGroups: PriorityGroups{
+		MinPending: 10,
+	}}
+	fetchWithOverflow := sendRequest(t, nc, "overflow", req)
+	_, err = fetchWithOverflow.NextMsg(time.Second)
+	require_Error(t, err)
+
+	// without overflow, we should get messages.
+	req = JSApiConsumerGetNextRequest{Batch: 1, Expires: 90 * time.Second}
+	fetchNoOverflow := sendRequest(t, nc, "without_overflow", req)
+	noOverflowMsg, err := fetchNoOverflow.NextMsg(time.Second)
+	require_NoError(t, err)
+	require_NotNil(t, noOverflowMsg)
+
+	req = JSApiConsumerGetNextRequest{Batch: 1, Expires: 90 * time.Second, PriorityGroups: PriorityGroups{
+		MinPending: 1,
+	}}
+	smallOverflow := sendRequest(t, nc, "smallOverflow", req)
+	_, err = smallOverflow.NextMsg(time.Second)
+	require_Error(t, err)
+
+	// Now add more messages.
+	for i := 0; i < 100; i++ {
+		sendStreamMsg(t, nc, "foo.1", "msg-1")
 	}
 
-	fmt.Printf("num pending: %v\n", consumer.npc)
-
-	msg, err := replies.NextMsg(time.Second * 5)
+	// and previous batch should receive messages now.
+	msg, err := fetchWithOverflow.NextMsg(time.Second * 5)
 	require_NoError(t, err)
 	require_NotNil(t, msg)
-
-	replies2 := sendRequest(t, nc, "SIMPLE2", req)
-	msg, err = replies2.NextMsg(time.Second)
-	require_NoError(t, err)
-	require_NotNil(t, msg)
-
 }
 
 func sendRequest(t *testing.T, nc *nats.Conn, reply string, req JSApiConsumerGetNextRequest) *nats.Subscription {
