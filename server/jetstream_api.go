@@ -727,12 +727,12 @@ const JSApiConsumerListResponseType = "io.nats.jetstream.api.v1.consumer_list_re
 
 // JSApiConsumerGetNextRequest is for getting next messages for pull based consumers.
 type JSApiConsumerGetNextRequest struct {
-	Expires        time.Duration `json:"expires,omitempty"`
-	Batch          int           `json:"batch,omitempty"`
-	MaxBytes       int           `json:"max_bytes,omitempty"`
-	NoWait         bool          `json:"no_wait,omitempty"`
-	Heartbeat      time.Duration `json:"idle_heartbeat,omitempty"`
-	PriorityGroups `json:"priority,omitempty"`
+	Expires   time.Duration `json:"expires,omitempty"`
+	Batch     int           `json:"batch,omitempty"`
+	MaxBytes  int           `json:"max_bytes,omitempty"`
+	NoWait    bool          `json:"no_wait,omitempty"`
+	Heartbeat time.Duration `json:"idle_heartbeat,omitempty"`
+	PriorityGroups
 }
 
 // JSApiStreamTemplateCreateResponse for creating templates.

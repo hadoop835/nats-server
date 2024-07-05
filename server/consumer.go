@@ -3420,6 +3420,7 @@ func (o *consumer) nextWaiting(sz int) *waitingRequest {
 				// fmt.Printf("Current NUID: %s WR nuid: %v\n", o.currentNuid, wr.priorityGroups.Id)
 				// Check if we have a match on the currentNuid
 				if wr.priorityGroups != nil && wr.priorityGroups.Id == o.currentNuid {
+					wr.currentPinned = true
 					// fmt.Printf("Returning waiting request to pinned\n")
 					// return o.waiting.pop()
 				} else if wr.priorityGroups.Id == _EMPTY_ {
@@ -4288,8 +4289,11 @@ func (o *consumer) loopAndGatherMsgs(qch chan struct{}) {
 		} else if wr := o.nextWaiting(sz); wr != nil {
 			wrn, wrb = wr.n, wr.b
 			dsubj = wr.reply
+			// TODO(jrm): we can remove this.
 			isPinned = wr.currentPinned
-			if isPinned {
+			fmt.Printf("Pinned: %v\n", isPinned)
+			if o.cfg.PriorityPolicy == PriorityPinnedClient {
+				fmt.Printf("Adding pin header\n")
 				// fmt.Printf("Adding pin header\n")
 				// fmt.Printf("Headers: %+v\n", string(pmsg.hdr))
 				if len(pmsg.hdr) == 0 {
