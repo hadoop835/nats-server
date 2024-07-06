@@ -4289,7 +4289,7 @@ func (o *consumer) loopAndGatherMsgs(qch chan struct{}) {
 			wrn, wrb = wr.n, wr.b
 			dsubj = wr.reply
 			// TODO(jrm): we can remove this.
-			isPinned = wr.currentPinned
+			// isPinned = wr.currentPinned
 			// fmt.Printf("Pinned: %v\n", isPinned)
 			if o.cfg.PriorityPolicy == PriorityPinnedClient {
 				// fmt.Printf("Adding pin header\n")
