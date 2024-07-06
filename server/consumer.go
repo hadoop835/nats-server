@@ -4208,7 +4208,6 @@ func (o *consumer) loopAndGatherMsgs(qch chan struct{}) {
 			delay    time.Duration
 			sz       int
 			wrn, wrb int
-			isPinned bool
 		)
 
 		o.mu.Lock()
